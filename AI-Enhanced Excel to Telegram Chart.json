@@ -1,0 +1,324 @@
+{
+  "name": "AI-Enhanced Excel to Telegram Chart",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "d1c8e8f0-68bd-4970-9a29-5927b8e19bd1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -592,
+        16
+      ],
+      "webhookId": "your-webhook-id",
+      "credentials": {
+        "telegramApi": {
+          "id": "NktHvHY6nS1SX4Zk",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4.1-nano",
+        "options": {}
+      },
+      "id": "3503d1b7-fa14-4db5-b42e-8296e513013a",
+      "name": "AI Agent - Analyze Request",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        208
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "mJM3paftH2wCzYQP",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI response\nconst aiResponse = $input.first().json;\nlet parsedData;\n\ntry {\n  // Get the AI output - it might be nested differently\n  const output = aiResponse.output || aiResponse.text || aiResponse.content || aiResponse;\n  \n  console.log('Raw AI Response:', JSON.stringify(output, null, 2));\n  \n  // If output is a string, parse it\n  if (typeof output === 'string') {\n    parsedData = JSON.parse(output);\n  } else if (typeof output === 'object') {\n    parsedData = output;\n  } else {\n    throw new Error('Unexpected AI response format');\n  }\n  \n  console.log('Parsed Data:', JSON.stringify(parsedData, null, 2));\n  \n  // Validate sheet URL\n  if (!parsedData.sheetUrl || parsedData.sheetUrl === 'NOT_FOUND' || parsedData.sheetUrl === '') {\n    return [{\n      json: {\n        error: true,\n        message: \"Please provide a valid Google Sheets URL in your message.\",\n        chatId: $('Telegram Trigger').item.json.message.chat.id,\n        debug: 'No sheetUrl found in AI response'\n      }\n    }];\n  }\n  \n  // Extract sheet ID from URL\n  const match = parsedData.sheetUrl.match(/\\/d\\/([a-zA-Z0-9-_]+)/);\n  if (!match) {\n    return [{\n      json: {\n        error: true,\n        message: \"Invalid Google Sheets URL format. Please share the full Google Sheets link.\",\n        chatId: $('Telegram Trigger').item.json.message.chat.id,\n        debug: `URL received: ${parsedData.sheetUrl}`\n      }\n    }];\n  }\n  \n  // Success - return parsed data\n  return [{\n    json: {\n      error: false,\n      sheetId: match[1],\n      sheetUrl: parsedData.sheetUrl,\n      chartType: parsedData.chartType || 'bar',\n      xAxisLabel: parsedData.xAxisLabel || 'Category',\n      yAxisLabel: parsedData.yAxisLabel || 'Value',\n      title: parsedData.title || 'Data Visualization',\n      chatId: $('Telegram Trigger').item.json.message.chat.id\n    }\n  }];\n  \n} catch (error) {\n  return [{\n    json: {\n      error: true,\n      message: \"Could not understand your request. Please try again with a Google Sheets link and description.\",\n      chatId: $('Telegram Trigger').item.json.message.chat.id,\n      rawError: error.message,\n      debug: JSON.stringify(aiResponse, null, 2)\n    }\n  }];\n}"
+      },
+      "id": "9ea2c394-9464-4463-b5c1-076d5da0adb0",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.message }}",
+        "additionalFields": {}
+      },
+      "id": "39851b83-a350-4705-91db-d7cec6775811",
+      "name": "Send Error Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        272,
+        112
+      ],
+      "webhookId": "c9e240ec-5204-44d5-b4ef-d0f1fb159ef6",
+      "credentials": {
+        "telegramApi": {
+          "id": "GQ7vWz8XEcjo4BWF",
+          "name": "Telegram account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "=={{ $('Parse AI Response').item.json.sheetUrl }}",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "options": {
+          "dataLocationOnSheet": {
+            "values": {
+              "rangeDefinition": "detectAutomatically"
+            }
+          }
+        }
+      },
+      "id": "1720b194-b14d-40fe-9b81-bf2db215c402",
+      "name": "Fetch Google Sheets Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        272,
+        -96
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "w1VRKC0TQJWTlyu5",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get configuration and data\nconst config = $('Parse AI Response').item.json;\nconst sheetsData = $input.all();\n\nconsole.log('Sheets Data Count:', sheetsData.length);\n\nif (!sheetsData || sheetsData.length === 0) {\n  throw new Error('No data received from Google Sheets');\n}\n\n// Extract all rows\nconst allRows = sheetsData.map(item => item.json);\nconsole.log('Sample row:', JSON.stringify(allRows[0], null, 2));\n\n// Get column names\nconst headers = Object.keys(allRows[0]);\nconsole.log('All headers:', headers);\n\n// Find the columns that contain actual data (not row_number)\n// Usually: Name/Product/Category column and Values/Marks/Sales column\nlet labelColumn = headers.find(h => \n  h.toLowerCase().includes('name') || \n  h.toLowerCase().includes('product') || \n  h.toLowerCase().includes('category') ||\n  headers.indexOf(h) === 1 // Second column as fallback\n);\n\nlet valueColumn = headers.find(h => \n  h.toLowerCase().includes('mark') || \n  h.toLowerCase().includes('sale') || \n  h.toLowerCase().includes('value') || \n  h.toLowerCase().includes('total') ||\n  headers.indexOf(h) === 2 // Third column as fallback\n);\n\n// If not found, use second and third columns\nif (!labelColumn) labelColumn = headers[1];\nif (!valueColumn) valueColumn = headers[2];\n\nconsole.log('Using label column:', labelColumn);\nconsole.log('Using value column:', valueColumn);\n\n// Extract labels and values\nconst labels = allRows.map(row => String(row[labelColumn] || '').trim()).filter(l => l !== '');\nconst values = allRows.map(row => {\n  const val = row[valueColumn];\n  // Remove any currency symbols, commas, percentage signs\n  const cleanVal = String(val).replace(/[$,€£%]/g, '').trim();\n  const num = parseFloat(cleanVal);\n  return isNaN(num) ? 0 : num;\n});\n\nconsole.log('Labels:', labels);\nconsole.log('Values:', values);\n\n// Color schemes based on chart type\nconst colorSchemes = {\n  line: {\n    backgroundColor: 'rgba(75, 192, 192, 0.2)',\n    borderColor: 'rgba(75, 192, 192, 1)',\n    pointBackgroundColor: 'rgba(75, 192, 192, 1)',\n    borderWidth: 3\n  },\n  bar: {\n    backgroundColor: [\n      'rgba(54, 162, 235, 0.7)',\n      'rgba(255, 99, 132, 0.7)',\n      'rgba(75, 192, 192, 0.7)',\n      'rgba(255, 206, 86, 0.7)',\n      'rgba(153, 102, 255, 0.7)',\n      'rgba(255, 159, 64, 0.7)',\n      'rgba(46, 204, 113, 0.7)',\n      'rgba(231, 76, 60, 0.7)',\n      'rgba(52, 152, 219, 0.7)'\n    ],\n    borderColor: [\n      'rgba(54, 162, 235, 1)',\n      'rgba(255, 99, 132, 1)',\n      'rgba(75, 192, 192, 1)',\n      'rgba(255, 206, 86, 1)',\n      'rgba(153, 102, 255, 1)',\n      'rgba(255, 159, 64, 1)',\n      'rgba(46, 204, 113, 1)',\n      'rgba(231, 76, 60, 1)',\n      'rgba(52, 152, 219, 1)'\n    ],\n    borderWidth: 2\n  },\n  pie: {\n    backgroundColor: [\n      'rgba(255, 99, 132, 0.8)',\n      'rgba(54, 162, 235, 0.8)',\n      'rgba(255, 206, 86, 0.8)',\n      'rgba(75, 192, 192, 0.8)',\n      'rgba(153, 102, 255, 0.8)',\n      'rgba(255, 159, 64, 0.8)',\n      'rgba(46, 204, 113, 0.8)',\n      'rgba(231, 76, 60, 0.8)'\n    ],\n    borderColor: '#ffffff',\n    borderWidth: 2\n  }\n};\n\nconst colors = colorSchemes[config.chartType] || colorSchemes.bar;\n\n// Build chart configuration\nconst chartConfig = {\n  type: config.chartType,\n  data: {\n    labels: labels,\n    datasets: [{\n      label: config.yAxisLabel,\n      data: values,\n      backgroundColor: colors.backgroundColor,\n      borderColor: colors.borderColor,\n      borderWidth: colors.borderWidth,\n      fill: config.chartType === 'line' ? false : true,\n      tension: 0.4\n    }]\n  },\n  options: {\n    responsive: true,\n    plugins: {\n      title: {\n        display: true,\n        text: config.title,\n        font: { size: 20, weight: 'bold' }\n      },\n      legend: {\n        display: config.chartType === 'pie',\n        position: 'bottom'\n      }\n    },\n    scales: config.chartType !== 'pie' ? {\n      x: {\n        title: {\n          display: true,\n          text: config.xAxisLabel,\n          font: { size: 14 }\n        },\n        ticks: {\n          autoSkip: false,\n          maxRotation: 45,\n          minRotation: 0\n        }\n      },\n      y: {\n        beginAtZero: true,\n        title: {\n          display: true,\n          text: config.yAxisLabel,\n          font: { size: 14 }\n        }\n      }\n    } : {}\n  }\n};\n\n// Create QuickChart URL\nconst encodedConfig = encodeURIComponent(JSON.stringify(chartConfig));\nconst chartUrl = `https://quickchart.io/chart?c=${encodedConfig}&width=800&height=600&backgroundColor=white`;\n\nreturn [{\n  json: {\n    chartUrl: chartUrl,\n    chatId: config.chatId,\n    caption: `${config.title}\\n\\n📊 Analyzed ${labels.length} items`,\n    debug: {\n      labelColumn: labelColumn,\n      valueColumn: valueColumn,\n      rowCount: allRows.length,\n      labels: labels,\n      values: values\n    }\n  }\n}];"
+      },
+      "id": "e4600d3d-85b7-42f7-b83d-fe89b7dcb90e",
+      "name": "Generate Chart Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.chartUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "f20a5ad8-1dfc-482d-8cdf-6ad21c5b237d",
+      "name": "Fetch Chart Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        672,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "=5523943502",
+        "binaryData": true,
+        "additionalFields": {}
+      },
+      "id": "e936de1d-78f4-442f-8dd1-b4152bbd1161",
+      "name": "Send Chart to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        -96
+      ],
+      "webhookId": "d17ec220-00d7-4ea6-866d-e592f00e8fd3",
+      "credentials": {
+        "telegramApi": {
+          "id": "NktHvHY6nS1SX4Zk",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a data visualization assistant. Extract the Google Sheets URL and determine the best chart type.\n\nReturn ONLY valid JSON in this exact format:\n{\n  \"sheetUrl\": \"full Google Sheets URL from user message\",\n  \"chartType\": \"line or bar or pie\",\n  \"title\": \"chart title\",\n  \"xAxisLabel\": \"x-axis label\",\n  \"yAxisLabel\": \"y-axis label\"\n}\n\nChart type rules:\n- \"show trends\" or \"over time\" → use \"line\"\n- \"compare\" or \"by product\" → use \"bar\"  \n- \"distribution\" or \"breakdown\" → use \"pie\"\n\nIf no URL found, set sheetUrl to \"NOT_FOUND\""
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -400,
+        16
+      ],
+      "id": "0abf9321-1626-4b1e-92ed-0e22216f9bd2",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.error }}",
+              "value2": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "eeede9e7-9fa8-4d08-817c-7da9b3f1b213",
+      "name": "Check for Errors",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        80,
+        16
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Check for Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Google Sheets Data": {
+      "main": [
+        [
+          {
+            "node": "Generate Chart Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Chart Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Chart Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Chart Image": {
+      "main": [
+        [
+          {
+            "node": "Send Chart to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Analyze Request": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Errors": {
+      "main": [
+        [
+          {
+            "node": "Fetch Google Sheets Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Error Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "baac71e8-ecf8-4c09-96f5-cb9d3a952819",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0b397fb6ab75b61e680a03064ffbb318ddc1504431c48d79034d71b2cb1b3667"
+  },
+  "id": "hs9V1wwUGg1nMe5f7KDlU",
+  "tags": []
+}
